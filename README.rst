@@ -165,6 +165,31 @@ Bellow we are using an S3 Backend:
         )
     )
 
+Runtime client
+--------------
+
+When you need to run Terraform operations directly from Python (instead of using the CLI shim), use the ``Client`` class.
+
+``TerraformPy`` is an alias of ``Client``.
+
+The constructor accepts ``working_dir``, ``chdir``, or ``cwd`` to set where Terraform commands are executed. If none is provided, the current working directory is used.
+
+Methods provided are ``plan``, ``apply``, ``destroy``, and ``output`` (plus optional ``init``). The command methods return an integer return code (`0` means success). ``output`` returns the Terraform output map as a Python dictionary when successful.
+
+.. code-block:: python
+
+    from terraformpy import Client, TerraformPy
+
+    # either constructor works
+    client = Client(cwd="infra/vm")
+    client = TerraformPy(working_dir="infra/vm")
+
+    # accepted call styles
+    rc = client.plan(var_file="vm.tfvars", out="vm.plan", input=False, no_color=True)
+    rc = client.apply(plan="vm.plan", auto_approve=True)
+    rc = client.destroy(var={"vm_name": "vm-1"}, auto_approve=True)
+    outputs = client.output()
+
 Modules
 -------
 
