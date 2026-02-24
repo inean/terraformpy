@@ -46,6 +46,8 @@ from .objects import (
 )
 from .resource_collections import ResourceCollection as ResourceCollection
 from .resource_collections import Variant as Variant
+from .runtime_client import Client as Client
+from .runtime_client import TerraformPy as TerraformPy
 
 # add a couple shortcuts
 compile = TFObject.compile
@@ -64,6 +66,8 @@ __all__ = [
     "Variable",
     "ResourceCollection",
     "Variant",
+    "Client",
+    "TerraformPy",
     "compile",
     "reset",
 ]
