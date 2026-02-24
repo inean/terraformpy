@@ -3,7 +3,7 @@
 .. |pypi| image:: https://img.shields.io/pypi/v/terraformpy?color=blue
    :target: https://pypi.org/project/terraformpy
 
-.. |versions| image:: https://img.shields.io/badge/python-2.7%20%7C%203.5%20%7C%203.6%20%7C%203.7%20%7C%203.8-blue
+.. |versions| image:: https://img.shields.io/badge/python-3.13%2B-blue
    :target: https://pypi.org/project/terraformpy
 
 .. |format| image:: https://img.shields.io/pypi/format/terraformpy?color=blue
@@ -35,7 +35,9 @@ Since `HCL`_ is "fully JSON compatible" and Python is great at generating JSON d
 Installing Terraformpy
 ----------------------
 
-The recommended way to install and use Terraformpy is via `Pipenv`_
+Terraformpy requires Python 3.13 or newer.
+
+The recommended way to install and use Terraformpy is via `uv`_.
 
 An example would look like:
 
@@ -43,22 +45,20 @@ An example would look like:
 
     $ mkdir my-terraform-project
     $ cd my-terraform-project
-    $ pipenv install terraformpy
+    $ uv init
+    $ uv add terraformpy
 
-You can then run Terraformpy using ``pipenv run``:
+You can then run Terraformpy using ``uv run``:
 
 .. code-block:: bash
 
-    $ pipenv run terraformpy ...
-
-Or you can use ``pipenv shell`` to activate the virtualenv so you don't need to use ``pipenv run``.  The rest of this document assumes that you've run ``pipenv shell`` and can just run ``terraformpy`` directly.
-
-.. _Pipenv: https://docs.pipenv.org/en/latest/
+    $ uv run terraformpy ...
+.. _uv: https://docs.astral.sh/uv/
 
 Using the CLI tool
 ------------------
 
-The ``terraformpy`` command line tool operates as a shim for the underlying ``terraform`` tool.  When invoked it will first find all ``*.tf.py`` files in the current directory, loading them using the `imp`_ module, generate a file named ``main.tf.json``, and then invoke underlying tool.
+The ``terraformpy`` command line tool operates as a shim for the underlying ``terraform`` tool.  When invoked it will first find all ``*.tf.py`` files in the current directory, load them, generate a file named ``main.tf.json``, and then invoke underlying tool.
 
 .. code-block:: bash
 
@@ -73,8 +73,6 @@ The ``terraformpy`` command line tool operates as a shim for the underlying ``te
 
 
 Each of the ``*.tf.py`` files uses a declarative syntax, using objects imported from this library.  You don't need to define a main function, you just create instances of classes (anonymous or otherwise) in the root of the module (you're building regular Python code here).  Since you're in a full blown Python environment there is no limit on what you can do -- import things, connect to databases, etc.
-
-.. _imp: https://docs.python.org/3/library/imp.html
 
 
 Writing ``.tf.py`` files
@@ -404,21 +402,24 @@ Developer notes
 Running tests
 -------------
 
-We use tox to run tests.  While developing locally you can run:
+We use ``uv`` to run tests. While developing locally you can run:
 
 .. code-block::
 
-    tox
+    uv sync --extra dev
+    uv run pytest
 
 
-Formatting with black
----------------------
+Linting, formatting, and type-checking
+--------------------------------------
 
-We use black to format code.  To apply formatting run:
+We use ``ruff`` for linting, ``uv format`` for formatting, and ``basedpyright`` for type-checking:
 
 .. code-block::
 
-    tox -e black -- .
+    uv run ruff check .
+    uv format
+    uv run basedpyright
 
 
 Release Steps

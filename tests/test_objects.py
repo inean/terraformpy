@@ -19,7 +19,6 @@ import json
 
 import pytest
 import schematics.types
-import six
 
 from terraformpy import (
     Data,
@@ -99,7 +98,7 @@ def test_getattr():
     assert res1.id == "${res1.foo.id}"
 
     var1 = Variable("var1", default="value")
-    assert "{0}".format(var1) == "${var.var1}"
+    assert f"{var1}" == "${var.var1}"
     with pytest.raises(AttributeError):
         assert var1.id, "nope!  vars do not have attrs!"
 
@@ -223,7 +222,7 @@ def test_provider():
     compiled = TFObject.compile()
 
     seen = []
-    for data in six.itervalues(compiled["provider"]):
+    for data in compiled["provider"].values():
         seen.append(data["host"])
 
     seen.sort()
@@ -316,7 +315,7 @@ def test_duplicate_key_collisions():
     compiled = Provider.compile()
 
     seen = []
-    for data in six.itervalues(compiled["provider"]):
+    for data in compiled["provider"].values():
         seen.append(data["alias"])
 
     seen.sort()

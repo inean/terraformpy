@@ -14,8 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
-import six
-from schematics.exceptions import MockCreationError
+from typing import Any, cast
+
 from schematics.models import Model
 
 from terraformpy.helpers import relative_file as _relative_file
@@ -44,60 +44,61 @@ class ResourceCollection(Model):
     If the above block was defined within a `Variant('prod')` context then count would be 4, otherwise it would be 2.
     """
 
-    def __init__(self, *args, **kwargs):
-        variant_name = kwargs.pop("variant_name", None)
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        variant_name = cast(str | None, kwargs.pop("variant_name", None))
+        mutable_kwargs = cast(dict[str, Any], kwargs)
 
         # if we have positional arguments AND a context then we just want to do the schematics model thing and have
         # super up to the model to let things happen.  this is most likely happening because one resource collection
         # is being used as a reference in a modeltype
-        if len(args) > 0 and kwargs.get("context") is not None:
-            super(ResourceCollection, self).__init__(*args, **kwargs)
+        if len(args) > 0 and mutable_kwargs.get("context") is not None:
+            super().__init__(*args, **cast(Any, mutable_kwargs))
             return
 
         # there are still some places in underlying schematics stuff that
         # invoke model constructors in the traditional way, but without
         # context. get_mock_object() is one of these cases
-        if len(kwargs) == 0 and len(args) == 1 and isinstance(args[0], dict):
-            kwargs = args[0]
+        if len(mutable_kwargs) == 0 and len(args) == 1 and isinstance(args[0], dict):
+            mutable_kwargs = cast(dict[str, Any], args[0])
             args = tuple()
 
         if variant_name is None and Variant.CURRENT_VARIANT is not None:
             variant_name = Variant.CURRENT_VARIANT.name
 
             # update our raw data with the variant defaults
-            kwargs.update(Variant.CURRENT_VARIANT.defaults)
+            mutable_kwargs.update(Variant.CURRENT_VARIANT.defaults)
 
         if variant_name is not None:
             # if there is then try fetching the val from inside the special variant attr
-            variant_key = "{0}_variant".format(Variant.CURRENT_VARIANT.name)
-            variant_data = kwargs.get(variant_key, None)
+            variant_key = f"{variant_name}_variant"
+            variant_data = mutable_kwargs.get(variant_key, None)
             if variant_data is not None:
-                kwargs.update(variant_data)
+                mutable_kwargs.update(cast(dict[str, Any], variant_data))
 
         # filter all of the variant data out
-        kwargs = dict(
-            (k, v) for k, v in six.iteritems(kwargs) if not k.endswith("_variant")
-        )
+        mutable_kwargs = {
+            k: v for k, v in mutable_kwargs.items() if not k.endswith("_variant")
+        }
 
-        super(ResourceCollection, self).__init__(kwargs)
+        super().__init__(mutable_kwargs)
 
         self.validate()
         self.create_resources()
 
-    def relative_file(self, filename):
+    def relative_file(self, filename: str) -> str:
         return _relative_file(filename, _caller_depth=2)
 
-    def create_resources(self):
+    def create_resources(self) -> None:
         raise NotImplementedError
 
-    def finalize_resources(self):
+    def finalize_resources(self) -> None:
         """This is called right before we compile everything.  It gives the collection a chance to generate any final
         resources prior to the compilation occuring.
         """
         pass
 
 
-class Variant(object):
+class Variant:
     """When used as a context manager it provides the ability for ResourceCollection's to vary their inputs based on a
     symbolc string name that allows you to define a resource collection for multiple environments where most of the
     inputs are shared, with only a few differences.
@@ -107,16 +108,17 @@ class Variant(object):
     over again.
     """
 
-    CURRENT_VARIANT = None
+    CURRENT_VARIANT: "Variant | None" = None
 
-    def __init__(self, name, **kwargs):
+    def __init__(self, name: str, **kwargs: object) -> None:
         self.name = name
         self.defaults = kwargs
-        self.previous_variant = None
+        self.previous_variant: Variant | None = None
 
-    def __enter__(self):
+    def __enter__(self) -> "Variant":
         self.previous_variant = Variant.CURRENT_VARIANT
         Variant.CURRENT_VARIANT = self
+        return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
         Variant.CURRENT_VARIANT = self.previous_variant

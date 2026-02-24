@@ -1,0 +1,87 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "terraformpy"
+dynamic = ["version"]
+description = "Terraformpy is a library and command line tool to supercharge your Terraform configs using a full fledged Python environment!"
+readme = "README.rst"
+requires-python = ">=3.13"
+license = "Apache-2.0"
+authors = [
+  { name = "Evan Borgstrom", email = "eborgstrom@nerdwallet.com" }
+]
+keywords = ["terraform", "iac", "hcl"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Intended Audience :: System Administrators",
+  "License :: OSI Approved :: Apache Software License",
+  "Natural Language :: English",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: Software Development :: Pre-processors",
+  "Topic :: System :: Systems Administration",
+]
+dependencies = [
+  "schematics>=2.0,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "basedpyright>=1.31.0",
+  "pytest>=8.3.0",
+  "pytest-cov>=5.0.0",
+  "pytest-mock>=3.14.0",
+  "ruff>=0.12.0",
+]
+
+[project.scripts]
+terraformpy = "terraformpy.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/NerdWalletOSS/terraformpy"
+Repository = "https://github.com/NerdWalletOSS/terraformpy"
+
+[tool.hatch.version]
+path = "VERSION"
+pattern = "(?P<version>.*)"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/terraformpy"]
+
+[tool.pytest.ini_options]
+addopts = "-v --cov=src/terraformpy --cov-report=term-missing --cov-fail-under=80"
+filterwarnings = [
+  "ignore::DeprecationWarning:.*schematics",
+]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+src = ["src", "tests"]
+exclude = ["examples"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.basedpyright]
+pythonVersion = "3.13"
+typeCheckingMode = "standard"
+include = ["src"]
+reportMissingTypeStubs = false
+reportAny = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownParameterType = false
+reportUnknownLambdaType = false
+reportIncompatibleMethodOverride = false
+reportAttributeAccessIssue = false
