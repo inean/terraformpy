@@ -16,9 +16,10 @@ limitations under the License.
 
 import inspect
 import os
+from pathlib import Path
 
 
-def relative_file(filename, _caller_depth=1):
+def relative_file(filename: str, _caller_depth: int = 1) -> str:
     """Given a filename that is relative to the caller of this function this will return a string to be used in
     resource definitions where you need to load a file.
 
@@ -42,13 +43,11 @@ def relative_file(filename, _caller_depth=1):
         "template": "${file(\"${path.module}/../../../modules/mything/files/foo.json\")}",
 
     """
-    return '${{file("{0}")}}'.format(
-        relative_path(filename, _caller_depth=_caller_depth + 1)
-    )
+    rel = relative_path(filename, _caller_depth=_caller_depth + 1)
+    return f'${{file("{rel}")}}'
 
 
-def relative_path(path, _caller_depth=1):
+def relative_path(path: str, _caller_depth: int = 1) -> str:
     caller = inspect.stack()[_caller_depth]
-    return "${{path.module}}/{0}".format(
-        os.path.relpath(os.path.join(os.path.dirname(caller[1]), path))
-    )
+    caller_path = Path(caller.filename).parent / path
+    return f"${{path.module}}/{os.path.relpath(str(caller_path))}"

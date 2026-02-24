@@ -1,3 +1,5 @@
+from typing import Any
+
 from terraformpy.objects import Resource
 
 SECURITY_GROUP_RULE_OPTIONAL_ATTRS = (
@@ -10,7 +12,9 @@ SECURITY_GROUP_RULE_OPTIONAL_ATTRS = (
 )
 
 
-def fill_in_optional_aws_security_group_rules_attrs(object_id, attrs):
+def fill_in_optional_aws_security_group_rules_attrs(
+    object_id: str, attrs: dict[str, Any]
+) -> dict[str, Any]:
     """Given a set of attrs for an aws_security_group this will ensure any ingress or egress blocks have all of the
     mandatory attributes defined
     """
@@ -29,7 +33,7 @@ def fill_in_optional_aws_security_group_rules_attrs(object_id, attrs):
     return attrs
 
 
-def install_aws_security_group_attributes_as_blocks_hook():
+def install_aws_security_group_attributes_as_blocks_hook() -> None:
     """Installs a hook that ensures that all ingress and egress blocks have all of the mandatory attributes defined
     as None, so that they compile out as null
 

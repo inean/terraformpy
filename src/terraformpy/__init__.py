@@ -15,19 +15,55 @@ limitations under the License.
 """
 
 from .objects import (
-    Data,
-    DuplicateKey,
-    Module,
-    OrderedDict,
-    Output,
-    Provider,
-    Resource,
-    Terraform,
-    TFObject,
-    Variable,
-)  # noqa
-from .resource_collections import ResourceCollection, Variant  # noqa
+    Data as Data,
+)
+from .objects import (
+    DuplicateKey as DuplicateKey,
+)
+from .objects import (
+    Module as Module,
+)
+from .objects import (
+    OrderedDict as OrderedDict,
+)
+from .objects import (
+    Output as Output,
+)
+from .objects import (
+    Provider as Provider,
+)
+from .objects import (
+    Resource as Resource,
+)
+from .objects import (
+    Terraform as Terraform,
+)
+from .objects import (
+    TFObject as TFObject,
+)
+from .objects import (
+    Variable as Variable,
+)
+from .resource_collections import ResourceCollection as ResourceCollection
+from .resource_collections import Variant as Variant
 
 # add a couple shortcuts
 compile = TFObject.compile
 reset = TFObject.reset
+
+__all__ = [
+    "Data",
+    "DuplicateKey",
+    "Module",
+    "OrderedDict",
+    "Output",
+    "Provider",
+    "Resource",
+    "Terraform",
+    "TFObject",
+    "Variable",
+    "ResourceCollection",
+    "Variant",
+    "compile",
+    "reset",
+]

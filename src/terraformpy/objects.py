@@ -15,25 +15,27 @@ limitations under the License.
 
 Terraform "objects"
 
-This module provides a set of classes that can be used to build Terraform configurations in a (mostly) declarative way,
-while also leveraging Python to add some functional aspects to automate some of the more repetitive aspects of HCL.
+This module provides a set of classes that can be used to build Terraform
+configurations in a (mostly) declarative way, while also leveraging Python to
+add some functional aspects to automate repetitive HCL tasks.
 """
-import collections
 
-import six
+from collections import OrderedDict as OrderedDictImpl
+from collections import defaultdict
+from collections.abc import Callable, Mapping
+from typing import Any, ClassVar, cast
+
 from schematics.types import compound
 
 from .resource_collections import Variant
 
+JsonDict = dict[str, Any]
+Hook = Callable[[JsonDict], JsonDict]
 
-def recursive_update(dest, source):
-    """Like dict.update, but recursive"""
-    try:
-        from collections.abc import Mapping
-    except ImportError:
-        from collections import Mapping
 
-    for key, val in six.iteritems(source):
+def recursive_update(dest: JsonDict, source: Mapping[str, Any]) -> JsonDict:
+    """Like ``dict.update``, but recursive."""
+    for key, val in source.items():
         if isinstance(val, Mapping):
             recurse = recursive_update(dest.get(key, {}), val)
             dest[key] = recurse
@@ -43,299 +45,214 @@ def recursive_update(dest, source):
 
 
 class DuplicateKey(str):
-    """DuplicateKey provides a native string (str) replacement that can be used as a
-    dictionary key that will serialize out to JSON and maintain the duplicity.
+    """A string subtype that keeps duplicated keys distinct in dicts."""
 
-    This is needed because the JSON representation of HCL requires duplicate keys for
-    provider resources, which is technically not against the JSON spec[1].
+    _next_hash: ClassVar[defaultdict[str, int]] = defaultdict(lambda: 0)
 
-    Insertion order is preserved by using a counter value as the hash value per unique
-    key that is generated using this class.
-
-    [1]: https://stackoverflow.com/a/21833017/11439015
-    """
-
-    _next_hash = collections.defaultdict(lambda: 0)
-
-    def __new__(cls, key):
-        inst = super(DuplicateKey, cls).__new__(cls, key)
-
+    def __new__(cls, key: str) -> "DuplicateKey":
+        inst = super().__new__(cls, key)
         inst._hash = hash((key, DuplicateKey._next_hash[key]))
         DuplicateKey._next_hash[key] += 1
-
         return inst
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return self._hash
 
-    def __eq__(self, other):
-        return self.__class__ == other.__class__ and self._hash == other._hash
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, DuplicateKey) and self._hash == other._hash
 
-    def __lt__(self, other):
-        if self.__class__ == other.__class__:
+    def __lt__(self, other: str) -> bool:
+        if isinstance(other, DuplicateKey):
             return self._hash < other._hash
-        return super(DuplicateKey, self).__lt__(other)
+        return cast(bool, super().__lt__(other))
 
-    def __le__(self, other):
-        if self.__class__ == other.__class__:
+    def __le__(self, other: str) -> bool:
+        if isinstance(other, DuplicateKey):
             return self._hash <= other._hash
-        return super(DuplicateKey, self).__le__(other)
+        return cast(bool, super().__le__(other))
 
-    def __gt__(self, other):
-        if self.__class__ == other.__class__:
+    def __gt__(self, other: str) -> bool:
+        if isinstance(other, DuplicateKey):
             return self._hash > other._hash
-        return super(DuplicateKey, self).__gt__(other)
+        return cast(bool, super().__gt__(other))
 
-    def __ge__(self, other):
-        if self.__class__ == other.__class__:
+    def __ge__(self, other: str) -> bool:
+        if isinstance(other, DuplicateKey):
             return self._hash >= other._hash
-        return super(DuplicateKey, self).__ge__(other)
+        return cast(bool, super().__ge__(other))
 
 
 class OrderedDict(compound.DictType):
-    """
-    A schematic DictType that preserves key insertion order
-    """
+    """A Schematics DictType that preserves insertion order."""
 
-    def __init__(self, *args, **kwargs):
-        super(OrderedDict, self).__init__(*args, **kwargs)
-        self.native_type = collections.OrderedDict
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.native_type = OrderedDictImpl
 
-    def convert(self, value, context=None):
-        # okay, this is a little wasteful for the purpose of not having to
-        # copy-paste the implementation that might currently exist
-        # in compound.DictType
-        # so sure, we iterate over the type a couple of times, but this way
-        # we get their validators and updates to their validators
-        temp_data = super(OrderedDict, self).convert(value, context)
-
-        # so now, temp_data is a dict filled with the correct (and coerced)
-        # values, we just want it to be ordered now based on how `value`
-        # was passed in
-        # let's trust the validators in `convert()` and not check key existance
-        data = collections.OrderedDict()
-        for k in value.keys():
-            data[k] = temp_data[k]
-
+    def convert(self, value: Mapping[str, Any], context: Any = None) -> OrderedDictImpl:
+        temp_data = super().convert(value, context)
+        data: OrderedDictImpl[str, Any] = OrderedDictImpl()
+        for key in value.keys():
+            data[key] = temp_data[key]
         return data
 
 
-class TFObject(object):
-    _instances = None
-    _frozen = False
-    _hooks = None
+class TFObject:
+    _instances: ClassVar[list["TFObject"] | None] = None
+    _frozen: ClassVar[bool] = False
+    _hooks: ClassVar[dict[str, list[Hook]] | None] = None
 
-    def __new__(cls, *args, **kwargs):
-        # create the instance
-        inst = super(TFObject, cls).__new__(cls)
-
-        # register it on the class
-        try:
-            cls._instances.append(inst)
-        except AttributeError:
+    def __new__(cls, *args: Any, **kwargs: Any) -> "TFObject":
+        inst = super().__new__(cls)
+        if cls._instances is None:
             cls._instances = [inst]
-
-        # return it
+        else:
+            cls._instances.append(inst)
         return inst
 
     @classmethod
-    def add_hook(cls, object_type, hook):
-        """Add a hook for the given object type
-
-        The hook will receive the full built object and is expected to return the updated object to be used when
-        recursively adding to the final output.
-
-        Generally you will want to use the add_hook method on the final object type (i.e. Resource.add_hook) instead
-        of this method, as the other add_hook methods provide sugar for typed and named objects.
-
-        See NamedObject.add_hook and TypedObject.add_hook
-        """
-        try:
-            TFObject._hooks[object_type].append(hook)
-        except TypeError:
+    def add_hook(cls, object_type: str, hook: Hook) -> None:
+        if TFObject._hooks is None:
             TFObject._hooks = {object_type: [hook]}
-        except KeyError:
-            TFObject._hooks[object_type] = [hook]
+            return
+        TFObject._hooks.setdefault(object_type, []).append(hook)
 
     @classmethod
-    def reset(cls):
-        def recursive_reset(cls):
-            cls._instances = None
-            for klass in cls.__subclasses__():
-                recursive_reset(klass)
+    def reset(cls) -> None:
+        def recursive_reset(klass: type[TFObject]) -> None:
+            klass._instances = None
+            for subclass in klass.__subclasses__():
+                recursive_reset(subclass)
 
         recursive_reset(cls)
         TFObject._frozen = False
         TFObject._hooks = None
 
     @classmethod
-    def compile(cls):
+    def compile(cls) -> JsonDict:
         TFObject._frozen = True
 
-        def recursive_compile(cls):
-            results = []
-            try:
-                for instance in cls._instances:
-                    output = instance.build()
+        def recursive_compile(klass: type[TFObject]) -> list[JsonDict]:
+            results: list[JsonDict] = []
+            for instance in klass._instances or []:
+                output = instance.build()
 
-                    for object_type in output:
-                        try:
-                            hooks = TFObject._hooks[object_type]
-                        except (TypeError, KeyError):
-                            pass
-                        else:
-                            for hook in hooks:
-                                output = hook(output)
+                for object_type in output:
+                    for hook in (TFObject._hooks or {}).get(object_type, []):
+                        output = hook(output)
 
-                    results.append(output)
-            except TypeError:
-                pass
+                results.append(output)
 
-            for klass in cls.__subclasses__():
-                results += recursive_compile(klass)
+            for subclass in klass.__subclasses__():
+                results.extend(recursive_compile(subclass))
             return results
 
         configs = recursive_compile(cls)
 
-        result = {}
+        result: JsonDict = {}
         for config in configs:
             result = recursive_update(result, config)
         return result
 
-    def build(self):
+    def build(self) -> JsonDict:
         raise NotImplementedError
 
 
 class Terraform(TFObject):
-    """Represents Terraform configuration.
-
-    See: https://www.terraform.io/docs/configuration/terraform.html
-    """
+    """Represents Terraform configuration."""
 
     @classmethod
-    def add_hook(cls, hook):
+    def add_hook(cls, hook: Hook) -> None:
         TFObject.add_hook("terraform", hook)
 
-    def __init__(self, _values=None, **kwargs):
+    def __init__(self, _values: JsonDict | None = None, **kwargs: Any) -> None:
         self._values = _values or {}
         self._values.update(kwargs)
 
-    def build(self):
+    def build(self) -> JsonDict:
         return {"terraform": self._values}
 
 
 class NamedObject(TFObject):
-    """Named objects are the Terraform definitions that only have a single name component (i.e. variable or output)"""
+    """Terraform object with a single name component (e.g. variable/output)."""
 
-    # When recursively compiling, the "type" of object that is written out to the terraform definition needs to point to
-    # the top-most subclass of TFobject.  For example, if you create a subclass of Resource named MyResource any
-    # instances still needs to be written out to the json as "resource" and not "myresource".  This must be set to an
-    # appropriate value at each specific subclass that maps to a terraform resource type.
-    TF_TYPE = None
+    TF_TYPE: ClassVar[str | None] = None
 
     @classmethod
-    def add_hook(cls, object_name, hook):
-        """Add a hook for anything that's a direct subclass of NamedObject (i.e. Provider, Variable, etc)
-
-        Unlike the TFobject.add_hook method the hook added for a named object receives just the output for the object
-        name, rather than the full compiled output.
-
-        For example::
-
-            Provider.add_hook("aws", my_hook)
-            Provider("aws", alias="aws")
-
-        Then your my_hook function would be called like::
-
-            my_hook({"alias": "aws"})
-
-        """
-
-        def named_hook(output):
-            for output_name in output[cls.TF_TYPE]:
+    def add_hook(cls, object_name: str, hook: Callable[[JsonDict], JsonDict]) -> None:
+        def named_hook(output: JsonDict) -> JsonDict:
+            tf_type = cls.TF_TYPE
+            if tf_type is None:
+                return output
+            for output_name in output[tf_type]:
                 if output_name != object_name:
                     continue
-
-                output[cls.TF_TYPE][output_name] = hook(
-                    output[cls.TF_TYPE][output_name]
-                )
-
+                output[tf_type][output_name] = hook(output[tf_type][output_name])
             return output
 
+        assert cls.TF_TYPE is not None
         TFObject.add_hook(cls.TF_TYPE, named_hook)
 
-    def __init__(self, _name, _values=None, **kwargs):
-        """When creating a TF Object you can supply _values if you want to directly influence the values of the object,
-        like when you're creating security group rules and need to specify `self`
-        """
+    def __init__(
+        self, _name: str, _values: JsonDict | None = None, **kwargs: Any
+    ) -> None:
         assert self.TF_TYPE is not None, (
-            "Bad programmer.  Set TF_TYPE on %s" % self.__class__.__name__
+            f"Bad programmer.  Set TF_TYPE on {self.__class__.__name__}"
         )
 
         self._name = _name
-        self._values = _values or {}
+        self._values: JsonDict = _values or {}
 
         if Variant.CURRENT_VARIANT is None:
             self._values.update(kwargs)
         else:
-            for name in kwargs:
+            for name, value in kwargs.items():
                 if not name.endswith("_variant"):
-                    self._values[name] = kwargs[name]
-                elif name == "{0}_variant".format(Variant.CURRENT_VARIANT.name):
-                    self._values.update(kwargs[name])
+                    self._values[name] = value
+                elif name == f"{Variant.CURRENT_VARIANT.name}_variant":
+                    assert isinstance(value, dict)
+                    self._values.update(value)
 
-    def __setattr__(self, name, value):
+    def __setattr__(self, name: str, value: Any) -> None:
         if "_values" in self.__dict__ and name in self.__dict__["_values"]:
             self.__dict__["_values"][name] = value
         else:
             self.__dict__[name] = value
 
-    def __getattr__(self, name):
-        """This is here as a safety so that you cannot generate hard to debug .tf.json files"""
+    def __getattr__(self, name: str) -> Any:
         if not TFObject._frozen and name in self._values:
             return self._values[name]
         raise AttributeError(
-            "%ss does not provide attribute interpolation through attribute access!"
-            % self.__class__.__name__
+            f"{self.__class__.__name__}s does not provide attribute interpolation "
+            "through attribute access!"
         )
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         return (
             isinstance(other, self.__class__)
             and self._name == other._name
             and self._values == other._values
         )
 
-    def __ne__(self, other):
+    def __ne__(self, other: object) -> bool:
         return not self.__eq__(other)
 
-    def build(self):
-        result = {self.TF_TYPE: {self._name: self._values}}
-        return result
+    def build(self) -> JsonDict:
+        assert self.TF_TYPE is not None
+        return {self.TF_TYPE: {self._name: self._values}}
 
-    def __repr__(self):
-        return "{0} {1}".format(type(self), self._name)
+    def __repr__(self) -> str:
+        return f"{type(self)} {self._name}"
 
 
 class TypedObjectAttr(str):
-    """TypedObjectAttr is a wrapper returned by TypedObject for attributes accessed which don't exist.
+    """Wrapper returned for non-existent attributes on TypedObject instances."""
 
-    The main use case for needing an attr wrapper is accessing interpolated map values, such as those from the
-    aws_kms_secrets resource.  We want to support both string-based and integer-based attribute access. Per the
-    documentation here:
-
-    https://www.terraform.io/docs/configuration/expressions.html#indices-and-attributes
-
-    However, of note, it appears that several resources - varying by provider version - fail to fully implement both
-    specs.  After testing, it appears that dot-separated attributes are more consistently supported. As such, we want
-    to return values such as:
-
-    ${resource_type.resource_name.attribute.key_name}
-    """
-
-    def __new__(cls, terraform_name, name, item=None):
-        obj = super(TypedObjectAttr, cls).__new__(
-            cls, "${{{0}.{1}}}".format(terraform_name, cls._name_with_index(name, item))
+    def __new__(
+        cls, terraform_name: str, name: str, item: str | int | None = None
+    ) -> "TypedObjectAttr":
+        obj = super().__new__(
+            cls, f"${{{terraform_name}.{cls._name_with_index(name, item)}}}"
         )
         obj._terraform_name = terraform_name
         obj._name = name
@@ -343,216 +260,154 @@ class TypedObjectAttr(str):
         return obj
 
     @staticmethod
-    def _name_with_index(name, item):
+    def _name_with_index(name: str, item: str | int | None) -> str:
         if item is None:
             return name
-        else:
-            return "{0}.{1}".format(name, item)
+        return f"{name}.{item}"
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: str | int) -> "TypedObjectAttr":
         return TypedObjectAttr(
             self._terraform_name, self._name_with_index(self._name, self._item), item
         )
 
-    def __getattr__(self, item):
+    def __getattr__(self, item: str) -> "TypedObjectAttr":
         return TypedObjectAttr(
             self._terraform_name, self._name_with_index(self._name, self._item), item
         )
 
 
 class TypedObject(NamedObject):
-    """Represents a Terraform object that has both a type and name (i.e. resource or data).
-
-    When you access an attribute of an instance of this class it will return the correct interpolation syntax for that
-    object.
-
-    .. code-block:: python
-
-        instance = Resource('aws_instance', 'my_instance', ...)
-        assert instance.id == '${aws_instance.my_instance.id}'
-
-    This allows you to build up configurations using the instances of the objects as a shortcut to writing out all of
-    the interpolation syntax.
-    """
+    """Terraform object with both a type and name (resource/data)."""
 
     @classmethod
-    def add_hook(cls, object_type, hook):
-        """Add a hook for the given object type
-
-        Unlike TFObject.add_hook your hook function will be called with the ID of the typed object and its attributes
-        rather than the full compiled ouput.
-
-        For example::
-
-            Resource.add_hook("aws_instance", my_hook)
-            Resource("aws_instance", "my_instance", instance_type="c5.large")
-
-        Then your my_hook function would be called like::
-
-            my_hook("my_instance", {"instance_type": "c5.large"})
-
-        """
-
-        def typed_hook(output):
-            for output_type in output[cls.TF_TYPE]:
+    def add_hook(
+        cls, object_type: str, hook: Callable[[str, JsonDict], JsonDict]
+    ) -> None:
+        def typed_hook(output: JsonDict) -> JsonDict:
+            tf_type = cls.TF_TYPE
+            if tf_type is None:
+                return output
+            for output_type in output[tf_type]:
                 if output_type != object_type:
                     continue
-
-                for object_id in output[cls.TF_TYPE][object_type]:
-                    output[cls.TF_TYPE][object_type][object_id] = hook(
-                        object_id, output[cls.TF_TYPE][object_type][object_id]
+                for object_id in output[tf_type][object_type]:
+                    output[tf_type][object_type][object_id] = hook(
+                        object_id, output[tf_type][object_type][object_id]
                     )
-
             return output
 
+        assert cls.TF_TYPE is not None
         TFObject.add_hook(cls.TF_TYPE, typed_hook)
 
-    def __init__(self, _type, _name, **kwargs):
-        super(TypedObject, self).__init__(_name, **kwargs)
+    def __init__(self, _type: str, _name: str, **kwargs: Any) -> None:
+        super().__init__(_name, **kwargs)
         self._type = _type
 
-        try:
-            if (
-                "provider" not in kwargs
-                and Provider.CURRENT_PROVIDER._name == self._type.split("_")[0]
-            ):
-                self._values["provider"] = Provider.CURRENT_PROVIDER.as_provider()
-        except AttributeError:
-            # CURRENT_PROVIDER is None
-            pass
+        if (
+            "provider" not in kwargs
+            and Provider.CURRENT_PROVIDER is not None
+            and Provider.CURRENT_PROVIDER._name == self._type.split("_")[0]
+        ):
+            self._values["provider"] = Provider.CURRENT_PROVIDER.as_provider()
 
-    def __eq__(self, other):
-        return super(TypedObject, self).__eq__(other) and self._type == other._type
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, TypedObject)
+            and super().__eq__(other)
+            and self._type == other._type
+        )
 
     @property
-    def terraform_name(self):
+    def terraform_name(self) -> str:
         return ".".join([self._type, self._name])
 
-    def interpolated(self, name):
-        """If you reference an attr on a TFObject that was provided as a value you will always get back the python object
-        instead of the Terraform interpolation string.  If you want the interpolation string this can be used to get it.
-        If you don't do this then you can end up without the implicit dependency and can have failures due to ordering.
-
-        Example:
-
-        .. code-block:: python
-
-            role = Resource(
-                'aws_iam_role', 'my_role',
-                name='my-role',
-                ...
-            )
-            Resource(
-                'aws_iam_role_policy_attachment', 'role_attachment',
-                role=role.interpolated('name'),
-                ...
-            )
-        """
+    def interpolated(self, name: str) -> Any:
         try:
             TFObject._frozen = True
             return getattr(self, name)
         finally:
             TFObject._frozen = False
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         if not TFObject._frozen and name in self._values:
             return self._values[name]
         return TypedObjectAttr(self.terraform_name, name)
 
-    def build(self):
-        result = {self.TF_TYPE: {self._type: {self._name: self._values}}}
-        return result
+    def build(self) -> JsonDict:
+        assert self.TF_TYPE is not None
+        return {self.TF_TYPE: {self._type: {self._name: self._values}}}
 
-    def __repr__(self):
-        return "{0} {1} {2}".format(type(self), self._type, self._name)
+    def __repr__(self) -> str:
+        return f"{type(self)} {self._type} {self._name}"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.__repr__()
 
 
 class Provider(NamedObject):
-    """Represents a Terraform provider configuration.
-
-    Providers can be used as context managers, and then provide themselves to all objects created while the context is
-    active:
-
-    .. code-block:: python
-
-        with Provider("aws", region="us-west-2", alias="west2"):
-            sg = Resource('aws_security_group', 'sg', ingress=['foo'])
-
-        assert sg.provider == 'aws.west2'
-    """
+    """Represents a Terraform provider configuration."""
 
     TF_TYPE = "provider"
-    CURRENT_PROVIDER = None
+    CURRENT_PROVIDER: ClassVar["Provider | None"] = None
 
-    def __init__(self, *args, **kwargs):
-        super(Provider, self).__init__(*args, **kwargs)
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
         self._key = DuplicateKey(self._name)
 
-    def __enter__(self):
-        assert self._values[
-            "alias"
-        ], "Providers must have an alias to be used as a context manager!"
+    def __enter__(self) -> "Provider":
+        assert self._values["alias"], (
+            "Providers must have an alias to be used as a context manager!"
+        )
         self._previous_provider = Provider.CURRENT_PROVIDER
         Provider.CURRENT_PROVIDER = self
+        return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
         Provider.CURRENT_PROVIDER = self._previous_provider
 
-    def as_provider(self):
+    def as_provider(self) -> str:
         return ".".join([self._name, self._values["alias"]])
 
-    # override build to support duplicate key values
-    def build(self):
-        result = {self.TF_TYPE: {self._key: self._values}}
-        return result
+    def build(self) -> JsonDict:
+        assert self.TF_TYPE is not None
+        return {self.TF_TYPE: {self._key: self._values}}
 
 
 class Variable(NamedObject):
-    """Represents a Terraform variable
-
-    You can reference the interpolation syntax for a Variable instance by simply using it as a string.
-
-    .. code-block:: python
-
-        var = Variable('my_var', default='foo')
-        assert var == '${var.my_var}'
-    """
+    """Represents a Terraform variable."""
 
     TF_TYPE = "variable"
 
-    def __repr__(self):
-        return "${{var.{0}}}".format(self._name)
+    def __repr__(self) -> str:
+        return f"${{var.{self._name}}}"
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.__repr__()
 
 
 class Output(NamedObject):
-    """Represents a Terraform output"""
+    """Represents a Terraform output."""
 
     TF_TYPE = "output"
 
 
 class Module(NamedObject):
-    """Represents a Terraform module"""
+    """Represents a Terraform module."""
 
     TF_TYPE = "module"
 
 
 class Data(TypedObject):
-    """Represents a Terraform data source"""
+    """Represents a Terraform data source."""
 
     TF_TYPE = "data"
 
     @property
-    def terraform_name(self):
-        return ".".join(["data", super(Data, self).terraform_name])
+    def terraform_name(self) -> str:
+        return ".".join(["data", super().terraform_name])
 
 
 class Resource(TypedObject):
-    """Represents a Terraform resource"""
+    """Represents a Terraform resource."""
 
     TF_TYPE = "resource"
