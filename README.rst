@@ -109,6 +109,11 @@ Things you can import from ``terraformpy``:
 * ``Data`` - https://www.terraform.io/docs/configuration/data-sources.html
 * ``Terraform`` - https://www.terraform.io/docs/configuration/terraform.html
 
+Runtime client imports from ``terraformpy``:
+
+* ``Client`` - minimal runtime client for execute mode
+* ``TerraformPy`` - alias of ``Client``
+
 See the ``examples/`` dir for fully functional examples.
 
 
