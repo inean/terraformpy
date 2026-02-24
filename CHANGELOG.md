@@ -1,3 +1,10 @@
+# 1.4.0
+
+* Add runtime execute-mode client support via ``Client`` / ``TerraformPy`` exports
+* Implement minimal Terraform runtime contract methods: ``plan``, ``apply``, ``destroy``, ``output`` (and optional ``init``)
+* Add execute-mode runtime client example under ``examples/runtime-client/execute_mode.py``
+* Document runtime client imports and usage in README
+
 # 1.3.3
 
 * Add new line to the EOF for `main.tf.json`
